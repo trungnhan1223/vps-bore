@@ -2,13 +2,6 @@ name: RDP by DucThang x TrueHieu (V7 - Chốt Hạ Tuyệt Đối)
 
 on:
   workflow_dispatch:
-    inputs:
-      server_url:
-        description: 'Server URL for logs'
-        required: false
-      machine_id:
-        description: 'Machine ID for logs'
-        required: false
   schedule:
     - cron: "0 */5 * * *"
 
@@ -29,59 +22,29 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 🛠️ Setup Logging Helper
-        shell: pwsh
-        run: |
-          $code = @'
-          param([string]$message)
-          Write-Host "[SYSTEM LOG]: $message"
-          $serverUrl = "${{ github.event.inputs.server_url }}"
-          $machineId = "${{ github.event.inputs.machine_id }}"
-          if ($serverUrl -and $machineId) {
-            try {
-              $body = @{ machineId = $machineId; message = $message } | ConvertTo-Json -Compress
-              Invoke-RestMethod -Uri "$serverUrl/api/machine-log" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 10 | Out-Null
-            } catch {
-              Write-Host "Failed to report log to server: $_"
-            }
-          }
-          '@
-          $code | Out-File -FilePath "report-log.ps1" -Encoding UTF8
-
       - name: Download and Extract Bore
-        shell: pwsh
         run: |
-          .\report-log.ps1 "📥 Đang tải và giải nén Bore..."
           Invoke-WebRequest -Uri "https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-x86_64-pc-windows-msvc.zip" -OutFile bore.zip
           Expand-Archive bore.zip -DestinationPath bore
-          .\report-log.ps1 "✅ Đã tải Bore."
 
       - name: Enable RDP + Create Admin User
-        shell: pwsh
         run: |
-          .\report-log.ps1 "👤 Cấu hình tài khoản Admin & RDP..."
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           $pass = ConvertTo-SecureString "WindowsRDP2026@" -AsPlainText -Force
           New-LocalUser "admin" -Password $pass -FullName "admin"
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "admin"
           Add-LocalGroupMember -Group "Administrators" -Member "admin"
-          .\report-log.ps1 "✅ Tạo tài khoản admin thành công (Pass: WindowsRDP2026@)."
 
       - name: Tối ưu Registry 4K
-        shell: pwsh
         run: |
-          .\report-log.ps1 "🚀 Đang cấu hình Registry tối ưu RDP 4K/120FPS..."
           $tsPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
           if (!(Test-Path $tsPath)) { New-Item -Path $tsPath -Force }
           Set-ItemProperty -Path $tsPath -Name "fEnableVirtualizedGraphics" -Value 1 -Type DWord
           Set-ItemProperty -Path $tsPath -Name "MinFrameRate" -Value 120 -Type DWord
-          .\report-log.ps1 "✅ Registry optimized."
 
       - name: Monitor Bore Stream & Force Update File
-        shell: pwsh
         run: |
-          .\report-log.ps1 "🌐 Khởi chạy Bore stream..."
           $PASS = "WindowsRDP2026@"
           $USER = "admin"
           $lastFullAddress = ""
@@ -91,7 +54,7 @@ jobs:
           git config --global user.email "bot@trueteam.top"
           git config --global core.autocrlf false
 
-          .\report-log.ps1 "🔍 Đang kết nối Bore Server..."
+          Write-Host "🚀 Đang truy quét Stream của Bore... Đợi Port về nhé đại ca!"
 
           $psi = New-Object System.Diagnostics.ProcessStartInfo
           $psi.FileName = ".\bore\bore.exe"
@@ -103,14 +66,15 @@ jobs:
           while (!$process.HasExited) {
               $line = $process.StandardOutput.ReadLine()
               if ($line) { Write-Host "[bore] $line" }
+              # Bore v0.5.1 in: "listening at bore.pub:PORT"; bản cũ: "remote forwarding at bore.pub:PORT"
               if ($line -match "(?:listening at|remote forwarding at) (bore\.pub:\d+)") {
                   $fullAddress = $matches[1]
                   $portOnly = $fullAddress.Split(':')[1]
 
                   if ($fullAddress -ne $lastFullAddress) {
                       $lastFullAddress = $fullAddress
-                      .\report-log.ps1 "✅ Mở port RDP thành công trên Bore: $fullAddress"
                       
+                      # LOGIC GHI ĐÈ MẠNH MẼ: Xóa sạch file cũ nếu có để tránh kẹt
                       if (Test-Path "rdp_info.txt") { Remove-Item "rdp_info.txt" -Force }
 
                       $createdAt = (Get-Date).ToString('HH:mm:ss dd/MM/yyyy')
@@ -130,12 +94,13 @@ jobs:
                       $report = ($reportLines -join "`r`n")
                       [System.IO.File]::WriteAllText("$(Get-Location)\rdp_info.txt", $report)
                       
+                      # Commit và Push bằng lệnh Force
                       git checkout main
                       git add rdp_info.txt
                       git commit -m "Update RDP: $portOnly [skip ci]"
                       git push origin main --force
                       
-                      .\report-log.ps1 "✅ Đã commit thông tin RDP lên repo: $fullAddress"
+                      Write-Host "✅ ĐÃ ÉP CẬP NHẬT REPO: $fullAddress"
                   }
               }
               Start-Sleep -Milliseconds 200
